@@ -1,6 +1,9 @@
 """Python 3 functional programing experiments."""
 
+
 import inspect
+import types
+import functools
 
 
 _LEFT_OPERATOR = [
@@ -64,6 +67,9 @@ _BUILT_IN_FUNCTIONS = [
     # ('__iter__', 'iter(%s%s%s)'),
 ]
 
+_CONTEXT_ERROR_MESSAGE = "sugar.Function_BaseBuilder only can be used " \
+                         "under a context manager."
+
 
 def _left_operator(template):
     """Return a function that make an expression string with a binary
@@ -99,9 +105,6 @@ def _unary_operator(template):
         result.__expr__ = template % self.__expr__
         return result
     return operator
-
-def _format_positional_arguments(args):
-    formated_args = ', ' + repr(args)[1:][:-1]
 
 
 def _built_in_function(template):
@@ -145,7 +148,7 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         self.__expr__ = name
 
     def __repr__(self):
-        return self._expression
+        return self.__expr__
 
     def __getattr__(self, attr):
         result = Expression('')
@@ -158,22 +161,95 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         return result
 
 
-class Define:
-    """Provide a declarative API to define a function."""
-    def __init__(self, docstring):
-        self.docstring = docstring
-
-    def __call__(self, *args, **kwds):
-        raise TypeError("'Define' object is not callable: missing '.end' at "
-                        "the ending of the function definition.")
-
-    def let(self, **parameters):
-        self._parameters = tuple(parameters)
-        self._globals = inspect.currentframe().f_back.f_globals
-        self._globals.update(parameters)
+def _check_end_and_return_self(function):
+    def inner(self, *args, **kwds):
+        if not self.is_open:
+            raise SyntaxError(_CONTEXT_ERROR_MESSAGE)
+        function(self, *args, **kwds)
         return self
+    return inner
+
+
+class _BaseBuilder:
+    def __init__(self):
+        self.template = "def function({arguments}){return_desc}:\n" \
+                        "{docstring}" \
+                        "{constants}" \
+                        " yield {expression}\n"
+        self.environ = dict(docstring='', arguments='', expression='',
+                            return_desc='', constants='')
+        self.frame = inspect.currentframe()
+        self.names = ()
+        self.old_globals = {}
+        self.globals = self.frame.f_back.f_globals
+        self.is_open = False
+
+    def __enter__(self):
+        self.is_open = True
+        return self
+
+    @_check_end_and_return_self
+    def __call__(self, docstring):
+        """Make the docstring of the function."""
+        self.environ["docstring"] = ' ' + repr(docstring) + '\n' if \
+                                    docstring != '' else ''
+
+    @_check_end_and_return_self
+    def takes(self, *arguments):
+        """Make the signature of the function."""
+        args = ', '.join("%s: '%s'" % (key, value) for key, value in arguments)
+        self.environ["arguments"] = args
+        # push the variables to the global namespace
+        self.names = set(name for name, _ in arguments)
+        self.old_globals = {key: self.globals[key] for key in self.names if \
+                            key in self.globals.keys()}
+        self.globals.update({name: Expression(name) for name in self.names})
+
+    @_check_end_and_return_self
+    def returns(self, return_desc):
+        """Make the return statement of the funciton."""
+        self.environ["return_desc"] = ' -> ' + repr(return_desc)
+
+    @_check_end_and_return_self
+    def consts(self, **constants):
+        """Inject constatns in the function."""
+        formated = '\n'.join(" %s = %s" % (key, value) for \
+                             key, value in constants.items()) + '\n'
+        self.environ["constants"] = formated
+        # push the variables to the global namespace
+        self.names = set(name for name in constants.keys())
+        self.old_globals = {key: self.globals[key] for key in self.names if \
+                            key in self.globals.keys()}
+        self.globals.update({name: Expression(name) for name in self.names})
+
+    @_check_end_and_return_self
+    def do(self, expression):
+        """Make the yield statement of the function."""
+        if isinstance(expression, Expression):
+            self.environ["expression"] = expression.__expr__
+        else:
+            self.environ["expression"] = repr(expression)
 
     @property
     def end(self):
-        for name in self._parameters:
-            del self._globals[name]
+        """Compile and return the function."""
+        if not self.is_open:
+            raise SyntaxError(_CONTEXT_ERROR_MESSAGE)
+        self.is_open = False
+        return lambda: (yield)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # check that the function was compiled
+        if self.is_open:
+            raise SyntaxError("missing 'end' property. You must get the "
+                              "'.end' property at the final of the method "
+                              "chaining.")
+        # Remove Expression object from the global namespace
+        for name in self.names:
+            if name in self.globals.keys():
+                del self.globals[name]
+        # Restore original object in the global namespace
+        if self.globals is not None:
+            self.globals.update(self.old_globals)
+        # fill the template
+        self.source = self.template.format(**self.environ)

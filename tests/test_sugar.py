@@ -358,6 +358,10 @@ class Test_BaseBuilderClass(unittest.TestCase):
                    " yield None\n"
         self.assertEqual(expected, let.source)
 
+    @unittest.skip('unimplemented')
+    def test_ward_in_do_method(self):
+        pass
+
     def test_mandatory_context_manager_with_do_method(self):
         is_as = sugar._BaseBuilder()
         with self.assertRaisesRegex(SyntaxError, self.error_message):
@@ -434,6 +438,24 @@ class TestBuildScope(unittest.TestCase):
         pass
 
     def test_RuntimeError_if_Build_is_called_in_a_local_scope_class(self):
+        pass
+
+
+@unittest.skip('unimplemented')
+class TestBuildThreadSafe(unittest.TestCase):
+    def test_that_two_thread_do_not_change_the_global_scope(self):
+        pass
+
+
+@unittest.skip('unimplemented')
+class Test_error_Function(unittest.TestCase):
+    def test_do_method_should_raise_an_exception(self):
+        pass
+
+
+@unittest.skip('unimplemented')
+class Test_thyself_Function(unittest.TestCase):
+    def test_recursive_function_with_the_thyself_function(self):
         pass
 
 

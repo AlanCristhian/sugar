@@ -2,8 +2,6 @@
 
 
 import inspect
-import types
-import functools
 
 
 _LEFT_OPERATOR = [
@@ -65,6 +63,15 @@ _BUILT_IN_FUNCTIONS = [
     # ('__contains__', 'contains(%s%s%s)'),
     # ('__len__', 'len(%s%s%s)'),
     # ('__iter__', 'iter(%s%s%s)'),
+
+    # TODO:
+    # ('__bytes__', 'bytes(%s%s%s)'),
+    # ('__format__', 'format(%s%s%s)'),
+    # ('__hash__', 'hash(%s%s%s)'),
+    # ('__bool__', 'bool(%s%s%s)'),
+    # ('__setattr__', 'setattr(%s%s%s)'),
+    # ('__delattr__', 'delattr(%s%s%s)'),
+    # ('__dir__', 'dir(%s%s%s)'),
 ]
 
 _CONTEXT_ERROR_MESSAGE = "sugar.Function_BaseBuilder only can be used " \

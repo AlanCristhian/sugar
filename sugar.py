@@ -200,9 +200,6 @@ _BUILT_IN_FUNCTIONS = [
     # ('__dir__', 'dir(%s%s%s)'),
 ]
 
-_CONTEXT_ERROR_MESSAGE = "sugar.Function_BaseBuilder only can be used " \
-                         "under a context manager."
-
 
 def _left_operator(template):
     """Return a function that make an expression string with a binary

@@ -1,7 +1,133 @@
 """Python 3 functional programing experiments."""
 
 
+import itertools
 import inspect
+import opcode
+import types
+
+
+# cache all constants to improve the legibility
+OPMAP_LOAD_GLOBAL = opcode.opmap['LOAD_GLOBAL']
+OPMAP_LOAD_DEREF = opcode.opmap['LOAD_DEREF']
+OPMAP_LOAD_CONST = opcode.opmap['LOAD_CONST']
+OPCODE_HAVE_ARGUMENT = opcode.HAVE_ARGUMENT
+
+
+def _make_closure_cell(val):
+    """a nested function just for creating a closure"""
+    def nested():
+        return val
+    return nested.__closure__[0]
+
+
+def _inject_constants(lambda_func, **constants):
+    """Return a copy of of the `lambda_func` parameter. This copy have
+    the constants defined in the `constants` map. If a key of
+    `constants` share the same name than a global or local object,
+    then replace such global or local by the value defined in the
+    `constants` argument."""
+    # NOTE: all vars with the *new_* name prefix are custom versions of
+    # the original attributes of the lambda_func.
+    old_code = lambda_func.__code__
+    new_code = list(old_code.co_code)
+    new_consts = list(old_code.co_consts)
+    new_freevars = list(old_code.co_freevars)
+    new_names = list(old_code.co_names)
+
+    i = 0
+    # through the list of instructions
+    while i < len(new_code):
+        op_code = new_code[i]
+        # Replace global lookups by the values defined in *constants*.
+        if op_code == OPMAP_LOAD_GLOBAL:
+            oparg = new_code[i + 1] + (new_code[i + 2] << 8)
+            # the names of all global variables are stored
+            # in lambda_func.old_code.co_names
+
+            # can't use the new_name variable directly because if I clean the
+            # name i get an IndexError.
+            name = old_code.co_names[oparg]
+            if name in constants:
+                value = constants[name]
+                # pos is the position of the new const
+                for pos, v in enumerate(new_consts):
+                    if v is value:
+                        # do nothing  if the value is already stored
+                        break
+                # add the value to new_consts if such value not exists
+                else:
+                    pos = len(new_consts)
+                    new_consts.append(value)
+                new_code[i] = OPMAP_LOAD_CONST
+                new_code[i + 1] = pos & 0xFF
+                new_code[i + 2] = pos >> 8
+
+        # Replace local lookups by the values defined in *constants*.
+        if op_code == OPMAP_LOAD_DEREF:
+            oparg = new_code[i + 1] + (new_code[i + 2] << 8)
+            # the names of all local variables are stored
+            # in lambda_func.old_code.co_freevars
+
+            # can't use the new_name variable directly because if I clean the
+            # name i get an IndexError.
+            name = old_code.co_freevars[oparg]
+            if name in constants:
+                value = constants[name]
+                # pos is the position of the new const
+                for pos, v in enumerate(new_consts):
+                    if v is value:
+                        # do nothing  if the value is already stored
+                        break
+                # add the value to new_consts if such value not exists
+                else:
+                    pos = len(new_consts)
+                    new_consts.append(value)
+                    new_freevars.remove(name)
+                new_code[i] = OPMAP_LOAD_CONST
+                new_code[i + 1] = pos & 0xFF
+                new_code[i + 2] = pos >> 8
+
+        i += 1
+        if op_code >= OPCODE_HAVE_ARGUMENT:
+            i += 2
+
+    # NOTE: the lines comented whit the *CUSTOM:* tag mean that such argument
+    # is a custom version of the original object
+
+    # create a new *code object* (like lambda_func.__code__)
+    code_object = types.CodeType(
+        old_code.co_argcount,
+        old_code.co_kwonlyargcount,
+        old_code.co_nlocals,
+        old_code.co_stacksize,
+        old_code.co_flags,
+        bytes(new_code),            # CUSTOM: lambda_func.old_code.co_code
+        tuple(new_consts),          # CUSTOM: lambda_func.old_code.co_consts
+        tuple(new_names),           # CUSTOM: lambda_func.old_code.co_names
+        old_code.co_varnames,
+        old_code.co_filename,
+        old_code.co_name,
+        old_code.co_firstlineno,
+        old_code.co_lnotab,
+        tuple(new_freevars),        # CUSTOM: lambda_func.old_code.co_freevars
+        old_code.co_cellvars)
+
+    # Customize the argument of the function object
+    _code    = code_object
+    _globals = lambda_func.__globals__
+    _name    = lambda_func.__name__
+    _argdef  = None
+    _closure = tuple(_make_closure_cell(var) for var in new_freevars)
+
+    # Make and return the new function
+    return types.FunctionType(_code, _globals, _name, _argdef, _closure)
+
+
+def _pairwise(iterable):
+    "s -> (s0,s1), (s2,s3), (s4, s5), ..."
+    a = iter(iterable)
+    return zip(a, a)
 
 
 _LEFT_OPERATOR = [
@@ -168,95 +294,58 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         return result
 
 
-def _check_end_and_return_self(function):
-    def inner(self, *args, **kwds):
-        if not self.is_open:
-            raise SyntaxError(_CONTEXT_ERROR_MESSAGE)
-        function(self, *args, **kwds)
-        return self
-    return inner
+def _replace_globals_and_locals(function):
+    "Replace defined locals by an Expression object."
+    globals_and_locals = itertools.chain(function.__code__.co_names,
+                                         function.__code__.co_freevars)
+    for var in globals_and_locals:
+        if var in function.__code__.co_consts:
+            # The first const everything is None. So I remove them
+            consts = function.__code__.co_consts[1:]
+            # Now I make a dictionary
+            consts = {name: Expression(name) for name, _ in \
+                      _pairwise(consts)}
+            return _inject_constants(function, **consts)
+    return function
 
 
-class _BaseBuilder:
-    def __init__(self):
-        self.template = "def function({arguments}){return_desc}:\n" \
+class Let:
+    def __init__(self, lambda_func):
+        assert type(lambda_func) is types.LambdaType
+        self.template = "def function{arguments}:\n" \
                         "{docstring}" \
                         "{constants}" \
+                        "{pattern}" \
                         " yield {expression}\n"
-        self.environ = dict(docstring='', arguments='', expression='',
-                            return_desc='', constants='')
-        self.frame = inspect.currentframe()
-        self.names = ()
-        self.old_globals = {}
-        self.globals = self.frame.f_back.f_globals
-        self.is_open = False
+        self.lambda_func = _replace_globals_and_locals(lambda_func)
+        self.make_expression()
+        self.make_signature()
 
-    def __enter__(self):
-        self.is_open = True
-        return self
+    def make_expression(self):
+        parameters = self.lambda_func.__code__.co_varnames
+        arguments = tuple(Expression(arg) for arg in parameters)
+        self.expression = self.lambda_func(*arguments)
 
-    @_check_end_and_return_self
-    def __call__(self, docstring):
-        """Make the docstring of the function."""
-        self.environ["docstring"] = ' ' + repr(docstring) + '\n' if \
-                                    docstring != '' else ''
+    def make_signature(self):
+        args = inspect.formatargspec(*inspect.getargspec(self.lambda_func))
+        self.expression.environ["arguments"] = args
+        self.source = self.template.format(**self.expression.environ)
 
-    @_check_end_and_return_self
-    def takes(self, *arguments):
-        """Make the signature of the function."""
-        args = ', '.join("%s: '%s'" % (key, value) for key, value in arguments)
-        self.environ["arguments"] = args
-        # push the variables to the global namespace
-        self.names = set(name for name, _ in arguments)
-        self.old_globals = {key: self.globals[key] for key in self.names if \
-                            key in self.globals.keys()}
-        self.globals.update({name: Expression(name) for name in self.names})
 
-    @_check_end_and_return_self
-    def returns(self, return_desc):
-        """Make the return statement of the funciton."""
-        self.environ["return_desc"] = ' -> ' + repr(return_desc)
-
-    @_check_end_and_return_self
-    def consts(self, **constants):
-        """Inject constatns in the function."""
-        formated = '\n'.join(" %s = %s" % (key, value) for \
-                             key, value in constants.items()) + '\n'
-        self.environ["constants"] = formated
-        # push the variables to the global namespace
-        self.names = set(name for name in constants.keys())
-        self.old_globals = {key: self.globals[key] for key in self.names if \
-                            key in self.globals.keys()}
-        self.globals.update({name: Expression(name) for name in self.names})
-
-    @_check_end_and_return_self
-    def do(self, expression):
-        """Make the yield statement of the function."""
+class Do:
+    def __init__(self, expression):
+        self.environ = {"docstring": "", "arguments": "",
+                        "expression": "", "constants": "",
+                        "pattern": ""}
         if isinstance(expression, Expression):
             self.environ["expression"] = expression.__expr__
         else:
             self.environ["expression"] = repr(expression)
 
-    @property
-    def end(self):
-        """Compile and return the function."""
-        if not self.is_open:
-            raise SyntaxError(_CONTEXT_ERROR_MESSAGE)
-        self.is_open = False
-        return lambda: (yield)
+    def where(self, **constants):
+        """Inject constatns in the function."""
+        formated = '\n'.join(" %s = %s" % (key, repr(value)) for \
+                             key, value in constants.items()) + '\n'
+        self.environ["constants"] = formated
+        return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # check that the function was compiled
-        if self.is_open:
-            raise SyntaxError("missing 'end' property. You must get the "
-                              "'.end' property at the final of the method "
-                              "chaining.")
-        # Remove Expression object from the global namespace
-        for name in self.names:
-            if name in self.globals.keys():
-                del self.globals[name]
-        # Restore original object in the global namespace
-        if self.globals is not None:
-            self.globals.update(self.old_globals)
-        # fill the template
-        self.source = self.template.format(**self.environ)

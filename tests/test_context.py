@@ -4,7 +4,7 @@ import types
 import sugar
 
 
-GLOBAL_VARIABLE = 'original value'
+GLOBAL = 'original value'
 
 
 class ExpressionTest(unittest.TestCase):
@@ -192,259 +192,75 @@ class FailedExpressionBehaviours:
                          'issubclass(self.var, type)')
 
 
-class Test_BaseBuilderClass(unittest.TestCase):
-    @classmethod
-    def setUpClass(self):
-        self.error_message = "sugar.Function_BaseBuilder only can be used under a "\
-                             "context manager."
-    # required syntax
+class TestLetClass(unittest.TestCase):
+    # Do class
 
-    def test_mandatory_end_property(self):
-        error_message = "missing 'end' property. You must get the '.end' "\
-                        "property at the final of the method chaining."
-        with self.assertRaisesRegex(SyntaxError, error_message):
-            with sugar._BaseBuilder() as let:
-                let('')
-
-    def test_mandatory_context_manager(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as.end
-
-    # __call__ method
-
-    def test_context_manager_Function(self):
-        with sugar._BaseBuilder() as let:
-            function = let('').end
-        self.assertTrue(isinstance(function, types.FunctionType))
-
-    def test_basic_function_source_code(self):
-        with sugar._BaseBuilder() as let:
-            let('docstring').end
-
-        expected = "def function():\n" \
-                   " 'docstring'\n" \
-                   " yield \n"
-        self.assertEqual(expected, let.source)
-
-    def test_mandatory_context_manager_with_the__call__method(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as('')
-
-    # takes method
-
-    def test_signature_builded_by_takes_method(self):
-        local = 'a local variable'
-        with sugar._BaseBuilder() as let:
-            let(
-                'function that add two numbers.'
-            ).takes(
-                ('a', 'as a number'),
-                ('b', 'as another number'),
-                ('local', 'an argument named "local"'),
-                ('GLOBAL_VARIABLE', 'argument named "GLOBAL_VARIABLE"')
-            ).end
-        expected = "def function(a: 'as a number', b: 'as another number', " \
-                                 "local: 'an argument named \"local\"', " \
-                                 "GLOBAL_VARIABLE: 'argument named "\
-                                 "\"GLOBAL_VARIABLE\"'):\n"\
-                   " 'function that add two numbers.'\n" \
-                   " yield \n"
-        self.assertEqual(expected, let.source)
-
-    def test_that_takes_method_fill_the_global_namespace(self):
-        with sugar._BaseBuilder() as let:
-            let('').takes(('a', '')).end
-            self.assertTrue(isinstance(a, sugar.Expression))
-
-    def test_takes_method_clear_the_var_from_the_global_namespace(self):
-        with sugar._BaseBuilder() as let:
-            let('').takes(('b', '')).end
-        with self.assertRaisesRegex(NameError, "name 'b' is not defined"):
-            b
-
-    def test_takes_method_restore_the_global_variable_value(self):
-        with sugar._BaseBuilder() as let:
-            let('').takes(('GLOBAL_VARIABLE', '')).end
-        self.assertEqual(GLOBAL_VARIABLE, 'original value')
-
-    def test_mandatory_context_manager_with_takes_method(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as.takes()
-
-    # returns method
-
-    def test_returns_method(self):
-        with sugar._BaseBuilder() as let:
-            let('').returns('the volume of the cylinder').end
-        expected = "def function() -> 'the volume of the cylinder':\n"\
-                   " yield \n"
-        self.assertEqual(expected, let.source)
-
-    def test_mandatory_context_manager_with_returns_method(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as.returns('')
-
-    # consts method
-
-    def test_expression_builded_by_consts_method(self):
-        with sugar._BaseBuilder() as let:
-            let('').consts(PI=3.14, e=2.72).do(PI*e).end
-        self.assertTrue(" e = 2.72\n" in let.source)
-        self.assertTrue(" PI = 3.14\n" in let.source)
-        self.assertTrue(" yield PI*(e)\n" in let.source)
-
-    def test_consts_method_fill_the_global_namespace(self):
-        with sugar._BaseBuilder() as let:
-            let('').consts(a='').end
-            self.assertTrue(isinstance(a, sugar.Expression))
-
-    def test_consts_method_clear_the_var_from_the_global_namespace(self):
-        with sugar._BaseBuilder() as let:
-            let('').consts(b='').end
-        with self.assertRaisesRegex(NameError, "name 'b' is not defined"):
-            b
-
-    def test_consts_method_restore_the_global_variable_value(self):
-        with sugar._BaseBuilder() as let:
-            let('').consts(GLOBAL_VARIABLE='').end
-        self.assertEqual(GLOBAL_VARIABLE, 'original value')
-
-    def test_mandatory_context_manager_with_consts_method(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as.consts(a=1)
-
-    @unittest.skip('unimplemented')
-    def test_ValueError_if_pass_a_function_as_value(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_ValueError_if_pass_lambda_function_as_value(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_ValueError_if_pass_a_funciton_maked_with_Build_class(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_ValueError_if_pass_a_generator(self):
-        pass
-
-    # do method
-
-    def test_do_method(self):
-        with sugar._BaseBuilder() as let:
-            let(
-                'function that add two numbers.'
-            ).takes(
-                ('a', 'as a number'),
-                ('b', 'as another number'),
-            ).do(
-                a + b
-            ).end
-        expected = "def function(a: 'as a number', b: 'as another number'):\n"\
-                   " 'function that add two numbers.'\n" \
-                   " yield a+(b)\n"
-        self.assertEqual(expected, let.source)
-
-    def test_do_method_with_an_regular_object(self):
-        with sugar._BaseBuilder() as let:
-            let('').do(None).end
-        expected = "def function():\n" \
+    def test_basic_source_code(self):
+        obtained = sugar.Let(lambda: sugar.Do(None))
+        expected = "def function():\n"\
                    " yield None\n"
-        self.assertEqual(expected, let.source)
+        self.assertEqual(expected, obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test_ward_in_do_method(self):
-        pass
+    def test_basic_operation(self):
+        x, y = sugar.Expression('x'), sugar.Expression('y')
+        obtained = sugar.Let(lambda: sugar.Do(x + y))
+        expected = "def function():\n"\
+                   " yield x+(y)\n"
+        self.assertEqual(expected, obtained.source)
 
-    def test_mandatory_context_manager_with_do_method(self):
-        is_as = sugar._BaseBuilder()
-        with self.assertRaisesRegex(SyntaxError, self.error_message):
-            is_as.do(None)
+    # signature
 
-    # method calling order
+    def test_signature(self):
+        obtained = sugar.Let(lambda x, y: sugar.Do(x+y))
+        expected = "def function(x, y):\n"\
+                   " yield x+(y)\n"
+        self.assertEqual(expected, obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test__call__before_take(self):
-        pass
+    def test_signature_with_default_arguments(self):
+        obtained = sugar.Let(lambda x, y=1: sugar.Do(x-y))
+        expected = "def function(x, y=1):\n"\
+                   " yield x-(y)\n"
+        self.assertEqual(expected, obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test__call__before_returns(self):
-        pass
+    # where method
 
-    @unittest.skip('unimplemented')
-    def test__call__before_consts(self):
-        pass
+    def test_where_method_without_global_or_local_variables(self):
+        obtained = sugar.Let(lambda: sugar.Do(PI*e).where(PI=3.14, e=2.72))
+        self.assertTrue(" e = 2.72\n" in obtained.source)
+        self.assertTrue(" PI = 3.14\n" in obtained.source)
+        self.assertTrue(" yield PI*(e)\n" in obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test__call__before_do(self):
-        pass
+    def test_where_method_with_global_variables(self):
+        obtained = sugar.Let(lambda:
+            sugar.Do(GLOBAL).where(GLOBAL='inner GLOBAL')
+        )
+        expected = "def function():\n"\
+                   " GLOBAL = 'inner GLOBAL'\n"\
+                   " yield GLOBAL\n"
+        self.assertEqual(expected, obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test_take_before_returns(self):
-        pass
+    def test_where_method_with_local_variables(self):
+        LOCAL = 'local variable'
+        obtained = sugar.Let(lambda:
+                             sugar.Do(LOCAL).where(LOCAL='inner LOCAL'))
+        expected = "def function():\n"\
+                   " LOCAL = 'inner LOCAL'\n"\
+                   " yield LOCAL\n"
+        self.assertEqual(expected, obtained.source)
 
-    @unittest.skip('unimplemented')
-    def test_take_before_consts(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_take_before_do(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_returns_before_consts(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_returns_before_do(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_consts_before_do(self):
-        pass
-
-    # can not call each method twice or more
-
-    @unittest.skip('unimplemented')
-    def test_RuntimeError_if__call__method_is_called_twice(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_RuntimeError_if_take_method_is_called_twice(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_RuntimeError_if_returs_method_is_called_twice(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_RuntimeError_if_consts_method_is_called_twice(self):
-        pass
-
-    @unittest.skip('unimplemented')
-    def test_RuntimeError_if_do_method_is_called_twice(self):
-        pass
-
-
-@unittest.skip('unimplemented')
-class TestBuildScope(unittest.TestCase):
-    def test_RuntimeError_if_Build_is_called_in_a_local_scope_function(self):
-        pass
-
-    def test_RuntimeError_if_Build_is_called_in_a_local_scope_class(self):
-        pass
-
-
-@unittest.skip('unimplemented')
-class TestBuildThreadSafe(unittest.TestCase):
-    def test_that_two_thread_do_not_change_the_global_scope(self):
-        pass
+    def test_where_method_with_global_and_local_variables(self):
+        LOCAL = 'local variable'
+        obtained = sugar.Let(lambda:
+            sugar.Do(
+                LOCAL*GLOBAL
+            ).where(
+                LOCAL=10,
+                GLOBAL=50
+            )
+        )
+        self.assertTrue("LOCAL = 10\n" in obtained.source)
+        self.assertTrue("GLOBAL = 50\n" in obtained.source)
+        self.assertTrue("yield LOCAL*(GLOBAL)\n" in obtained.source)
 
 
 @unittest.skip('unimplemented')

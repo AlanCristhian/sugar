@@ -1,3 +1,4 @@
+import collections
 import unittest
 import types
 
@@ -206,6 +207,68 @@ class TestLetClass(unittest.TestCase):
         obtained = sugar.Let(lambda: sugar.Do(x + y))
         expected = "def function():\n"\
                    " yield x+(y)\n"
+        self.assertEqual(expected, obtained.source)
+
+    # Match class
+
+    def test_single_pattern_matching(self):
+        obtained = sugar.Let(lambda x:
+            sugar.Match({
+                x > 0: True
+            })
+        )
+        expected = "def function(x):\n"\
+                   " if x>(0):\n"\
+                   "  yield True\n"
+        self.assertEqual(expected, obtained.source)
+
+    def test_pattern_matching_with_the_OTHERWISE_constant(self):
+        obtained = sugar.Let(lambda x:
+            sugar.Match({
+                x > 0: True,
+                sugar.OTHERWISE: False
+            })
+        )
+        expected = "def function(x):\n" \
+                   " if x>(0):\n" \
+                   "  yield True\n" \
+                   " else:\n" \
+                   "  yield False\n"
+        self.assertEqual(expected, obtained.source)
+
+    def test_pattern_matching_with_many_patterns(self):
+        obtained = sugar.Let(lambda x:
+            sugar.Match(collections.OrderedDict([
+                (x > 0, True),
+                (x < 0, False),
+                (sugar.OTHERWISE, 0)
+            ]))
+        )
+        expected = "def function(x):\n" \
+                   " if x>(0):\n" \
+                   "  yield True\n" \
+                   " elif x<(0):\n" \
+                   "  yield False\n" \
+                   " else:\n" \
+                   "  yield 0\n"
+        self.assertEqual(expected, obtained.source)
+
+    def test_pattern_matching_with_where_method(self):
+        obtained = sugar.Let(lambda x:
+            sugar.Match(collections.OrderedDict([
+                (x > zero, True),
+                (x < zero, False),
+                (sugar.OTHERWISE, zero)
+            ])).where(zero=0)
+        )
+        expected = "def function(x):\n" \
+                   " zero = 0\n" \
+                   " if x>(zero):\n" \
+                   "  yield True\n" \
+                   " elif x<(zero):\n" \
+                   "  yield False\n" \
+                   " else:\n" \
+                   "  yield zero\n"
         self.assertEqual(expected, obtained.source)
 
     # signature

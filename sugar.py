@@ -21,7 +21,7 @@ def _make_closure_cell(val):
     return nested.__closure__[0]
 
 
-def _inject_constants(lambda_func, **constants):
+def _inject_constants(lambda_func, constants):
     """Return a copy of of the `lambda_func` parameter. This copy have
     the constants defined in the `constants` map. If a key of
     `constants` share the same name than a global or local object,
@@ -290,9 +290,12 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         result.__expr__ = '(%s)[%s]' % (self.__expr__, repr(attr))
         return result
 
+    def __hash__(self):
+        return hash(self.__expr__)
+
 
 def _replace_globals_and_locals(function):
-    "Replace defined locals by an Expression object."
+    "Replace defined locals and globals by an Expression object."
     globals_and_locals = itertools.chain(function.__code__.co_names,
                                          function.__code__.co_freevars)
     for var in globals_and_locals:
@@ -302,7 +305,7 @@ def _replace_globals_and_locals(function):
             # Now I make a dictionary
             consts = {name: Expression(name) for name, _ in \
                       _pairwise(consts)}
-            return _inject_constants(function, **consts)
+            return _inject_constants(function, consts)
     return function
 
 
@@ -313,31 +316,62 @@ class Let:
                         "{docstring}" \
                         "{constants}" \
                         "{pattern}" \
-                        " yield {expression}\n"
+                        "{expression}"
         self.lambda_func = _replace_globals_and_locals(lambda_func)
         self.make_expression()
+        if isinstance(self.expression, Match):
+            self.make_pattern()
         self.make_signature()
+        self.source = self.template.format(**self.expression.environ)
 
     def make_expression(self):
         parameters = self.lambda_func.__code__.co_varnames
         arguments = tuple(Expression(arg) for arg in parameters)
         self.expression = self.lambda_func(*arguments)
 
+    def make_pattern(self):
+        if_expression = ''
+        elif_expression = ''
+        else_expression = ''
+        pattern = self.expression.pattern
+        if '__otherwise__' in pattern and len(pattern) > 1:
+            value = pattern.pop('__otherwise__')
+            else_expression = " else:\n  yield %s\n" % value
+        if len(pattern) == 1:
+            if_expression = " if %s:\n  yield %s\n" % list(pattern.items())[0]
+        else:
+            iter_pattern = iter(pattern.items())
+            if_expression = " if %s:\n  yield %s\n" % next(iter_pattern)
+            elif_expression = ''. join(' elif %s:\n  yield %s\n' % \
+                                       (key, value) for key, value in \
+                                       iter_pattern)
+        self.expression.environ["expression"] = if_expression + \
+                                                elif_expression + \
+                                                else_expression
+
+
     def make_signature(self):
         args = inspect.formatargspec(*inspect.getargspec(self.lambda_func))
         self.expression.environ["arguments"] = args
-        self.source = self.template.format(**self.expression.environ)
+
+
+class Environ:
+    def __init__(self):
+        self.environ = {"docstring": "", "arguments": "",
+                        "expression": "", "constants": "",
+                        "pattern": ""}
+
+
+OTHERWISE = '__otherwise__'
 
 
 class Do:
     def __init__(self, expression):
-        self.environ = {"docstring": "", "arguments": "",
-                        "expression": "", "constants": "",
-                        "pattern": ""}
+        Environ.__init__(self)
         if isinstance(expression, Expression):
-            self.environ["expression"] = expression.__expr__
+            self.environ["expression"] = " yield %s\n" % expression.__expr__
         else:
-            self.environ["expression"] = repr(expression)
+            self.environ["expression"] = " yield %s\n" % repr(expression)
 
     def where(self, **constants):
         """Inject constatns in the function."""
@@ -345,4 +379,10 @@ class Do:
                              key, value in constants.items()) + '\n'
         self.environ["constants"] = formated
         return self
+
+
+class Match(Do):
+    def __init__(self, pattern):
+        Environ.__init__(self)
+        self.pattern = pattern
 

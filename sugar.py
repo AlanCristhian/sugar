@@ -7,6 +7,9 @@ import opcode
 import types
 
 
+__all__ = ["Let", "Do", "OTHERWISE", "Expression", "Raise"]
+
+
 def _make_closure_cell(val):
     """a nested function just for creating a closure"""
     def nested():
@@ -279,6 +282,39 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         return hash(self.__expr__)
 
 
+OTHERWISE = '__otherwise__'
+
+
+class _Body:
+    def __init__(self, expression):
+        self.environ = {"docstring": "", "arguments": "", "expression": "",
+                        "constants": "", "pattern": ""}
+
+    def where(self, **constants):
+        """Inject constatns in the function."""
+        formated = '\n'.join(" %s = %s" % (key, repr(value)) for \
+                             key, value in constants.items()) + '\n'
+        self.environ["constants"] = formated
+        return self
+
+
+class Do(_Body):
+    def __init__(self, body):
+        super().__init__(body)
+        self.body = body
+
+
+class Match(_Body):
+    def __init__(self, pattern):
+        super().__init__(pattern)
+        self.pattern = pattern
+
+
+class Raise:
+    def __init__(self, error):
+        self.error = error
+
+
 def _replace_globals_and_locals(function):
     "Replace defined locals and globals by an Expression object."
     globals_and_locals = itertools.chain(function.__code__.co_names,
@@ -306,6 +342,8 @@ class Let:
         self.make_expression()
         if isinstance(self.expression, Match):
             self.make_pattern()
+        if isinstance(self.expression, Do):
+            self.make_do_body()
         self.make_signature()
         self.source = self.template.format(**self.expression.environ)
 
@@ -314,60 +352,43 @@ class Let:
         arguments = tuple(Expression(arg) for arg in parameters)
         self.expression = self.lambda_func(*arguments)
 
+    def make_do_body(self):
+        if isinstance(self.expression, Expression):
+            self.expression.environ["expression"] = " return %s\n" % \
+                                              expression.__expr__
+        elif isinstance(self.expression.body, Raise):
+            self.expression.environ["expression"] = \
+                " raise %s\n" % repr(self.expression.body.error)
+        else:
+            self.expression.environ["expression"] = \
+                " return %s\n" % repr(self.expression.body)
+
     def make_pattern(self):
         if_expression = ''
         elif_expression = ''
         else_expression = ''
+        for key, value in self.expression.pattern.items():
+            if isinstance(value, Raise):
+                new_value = repr(self.expression.pattern[key].error)
+                self.expression.pattern[key] = "raise " + new_value
+            else:
+                self.expression.pattern[key] = "return " + repr(value)
         pattern = self.expression.pattern
         if '__otherwise__' in pattern and len(pattern) > 1:
             value = pattern.pop('__otherwise__')
-            else_expression = " else:\n  yield %s\n" % value
+            else_expression = " else:\n  %s\n" % value
         if len(pattern) == 1:
-            if_expression = " if %s:\n  yield %s\n" % list(pattern.items())[0]
+            if_expression = " if %s:\n  %s\n" % list(pattern.items())[0]
         else:
             iter_pattern = iter(pattern.items())
-            if_expression = " if %s:\n  yield %s\n" % next(iter_pattern)
-            elif_expression = ''. join(' elif %s:\n  yield %s\n' % \
+            if_expression = " if %s:\n  %s\n" % next(iter_pattern)
+            elif_expression = ''. join(' elif %s:\n  %s\n' % \
                                        (key, value) for key, value in \
                                        iter_pattern)
-        self.expression.environ["expression"] = if_expression + \
-                                                elif_expression + \
-                                                else_expression
+        self.expression.environ["expression"] = (
+            if_expression + elif_expression + else_expression)
 
 
     def make_signature(self):
         args = inspect.formatargspec(*inspect.getargspec(self.lambda_func))
         self.expression.environ["arguments"] = args
-
-
-class Environ:
-    def __init__(self):
-        self.environ = {"docstring": "", "arguments": "",
-                        "expression": "", "constants": "",
-                        "pattern": ""}
-
-
-OTHERWISE = '__otherwise__'
-
-
-class Do:
-    def __init__(self, expression):
-        Environ.__init__(self)
-        if isinstance(expression, Expression):
-            self.environ["expression"] = " yield %s\n" % expression.__expr__
-        else:
-            self.environ["expression"] = " yield %s\n" % repr(expression)
-
-    def where(self, **constants):
-        """Inject constatns in the function."""
-        formated = '\n'.join(" %s = %s" % (key, repr(value)) for \
-                             key, value in constants.items()) + '\n'
-        self.environ["constants"] = formated
-        return self
-
-
-class Match(Do):
-    def __init__(self, pattern):
-        Environ.__init__(self)
-        self.pattern = pattern
-

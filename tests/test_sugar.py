@@ -199,14 +199,23 @@ class TestLetClass(unittest.TestCase):
     def test_basic_source_code(self):
         obtained = sugar.Let(lambda: sugar.Do(None))
         expected = "def function():\n"\
-                   " yield None\n"
+                   " return None\n"
         self.assertEqual(expected, obtained.source)
 
     def test_basic_operation(self):
         x, y = sugar.Expression('x'), sugar.Expression('y')
         obtained = sugar.Let(lambda: sugar.Do(x + y))
         expected = "def function():\n"\
-                   " yield x+(y)\n"
+                   " return x+(y)\n"
+        self.assertEqual(expected, obtained.source)
+
+    def test_exception_in_do_body(self):
+        obtained = sugar.Let(lambda:
+            sugar.Do(
+                sugar.Raise(ValueError('description' )))
+        )
+        expected = "def function():\n"\
+                   " raise ValueError('description',)\n"
         self.assertEqual(expected, obtained.source)
 
     # Match class
@@ -219,7 +228,7 @@ class TestLetClass(unittest.TestCase):
         )
         expected = "def function(x):\n"\
                    " if x>(0):\n"\
-                   "  yield True\n"
+                   "  return True\n"
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_the_OTHERWISE_constant(self):
@@ -231,9 +240,9 @@ class TestLetClass(unittest.TestCase):
         )
         expected = "def function(x):\n" \
                    " if x>(0):\n" \
-                   "  yield True\n" \
+                   "  return True\n" \
                    " else:\n" \
-                   "  yield False\n"
+                   "  return False\n"
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_many_patterns(self):
@@ -246,11 +255,11 @@ class TestLetClass(unittest.TestCase):
         )
         expected = "def function(x):\n" \
                    " if x>(0):\n" \
-                   "  yield True\n" \
+                   "  return True\n" \
                    " elif x<(0):\n" \
-                   "  yield False\n" \
+                   "  return False\n" \
                    " else:\n" \
-                   "  yield 0\n"
+                   "  return 0\n"
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_where_method(self):
@@ -264,11 +273,20 @@ class TestLetClass(unittest.TestCase):
         expected = "def function(x):\n" \
                    " zero = 0\n" \
                    " if x>(zero):\n" \
-                   "  yield True\n" \
+                   "  return True\n" \
                    " elif x<(zero):\n" \
-                   "  yield False\n" \
+                   "  return False\n" \
                    " else:\n" \
-                   "  yield zero\n"
+                   "  return zero\n"
+        self.assertEqual(expected, obtained.source)
+
+    def test_exception_in_match_body(self):
+        obtained = sugar.Let(lambda x:
+            sugar.Match({x: sugar.Raise(ValueError('description' ))})
+        )
+        expected = "def function(x):\n"\
+                   " if x:\n"\
+                   "  raise ValueError('description',)\n"
         self.assertEqual(expected, obtained.source)
 
     # signature
@@ -276,13 +294,13 @@ class TestLetClass(unittest.TestCase):
     def test_signature(self):
         obtained = sugar.Let(lambda x, y: sugar.Do(x+y))
         expected = "def function(x, y):\n"\
-                   " yield x+(y)\n"
+                   " return x+(y)\n"
         self.assertEqual(expected, obtained.source)
 
     def test_signature_with_default_arguments(self):
         obtained = sugar.Let(lambda x, y=1: sugar.Do(x-y))
         expected = "def function(x, y=1):\n"\
-                   " yield x-(y)\n"
+                   " return x-(y)\n"
         self.assertEqual(expected, obtained.source)
 
     # where method
@@ -291,7 +309,7 @@ class TestLetClass(unittest.TestCase):
         obtained = sugar.Let(lambda: sugar.Do(PI*e).where(PI=3.14, e=2.72))
         self.assertTrue(" e = 2.72\n" in obtained.source)
         self.assertTrue(" PI = 3.14\n" in obtained.source)
-        self.assertTrue(" yield PI*(e)\n" in obtained.source)
+        self.assertTrue(" return PI*(e)\n" in obtained.source)
 
     def test_where_method_with_global_variables(self):
         obtained = sugar.Let(lambda:
@@ -299,7 +317,7 @@ class TestLetClass(unittest.TestCase):
         )
         expected = "def function():\n"\
                    " GLOBAL = 'inner GLOBAL'\n"\
-                   " yield GLOBAL\n"
+                   " return GLOBAL\n"
         self.assertEqual(expected, obtained.source)
 
     def test_where_method_with_local_variables(self):
@@ -308,7 +326,7 @@ class TestLetClass(unittest.TestCase):
                              sugar.Do(LOCAL).where(LOCAL='inner LOCAL'))
         expected = "def function():\n"\
                    " LOCAL = 'inner LOCAL'\n"\
-                   " yield LOCAL\n"
+                   " return LOCAL\n"
         self.assertEqual(expected, obtained.source)
 
     def test_where_method_with_global_and_local_variables(self):
@@ -323,13 +341,7 @@ class TestLetClass(unittest.TestCase):
         )
         self.assertTrue("LOCAL = 10\n" in obtained.source)
         self.assertTrue("GLOBAL = 50\n" in obtained.source)
-        self.assertTrue("yield LOCAL*(GLOBAL)\n" in obtained.source)
-
-
-@unittest.skip('unimplemented')
-class Test_error_Function(unittest.TestCase):
-    def test_do_method_should_raise_an_exception(self):
-        NotImplemented
+        self.assertTrue("return LOCAL*(GLOBAL)\n" in obtained.source)
 
 
 @unittest.skip('unimplemented')

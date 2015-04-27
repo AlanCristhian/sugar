@@ -292,7 +292,7 @@ class _Body:
 
     def where(self, **constants):
         """Inject constatns in the function."""
-        formated = '\n'.join(" %s = %s" % (key, repr(value)) for \
+        formated = '\n'.join("    %s = %s" % (key, repr(value)) for \
                              key, value in constants.items()) + '\n'
         self.environ["constants"] = formated
         return self
@@ -354,14 +354,14 @@ class Let:
 
     def make_do_body(self):
         if isinstance(self.expression, Expression):
-            self.expression.environ["expression"] = " return %s\n" % \
+            self.expression.environ["expression"] = "    return %s\n" % \
                                               expression.__expr__
         elif isinstance(self.expression.body, Raise):
             self.expression.environ["expression"] = \
-                " raise %s\n" % repr(self.expression.body.error)
+                "    raise %s\n" % repr(self.expression.body.error)
         else:
             self.expression.environ["expression"] = \
-                " return %s\n" % repr(self.expression.body)
+                "    return %s\n" % repr(self.expression.body)
 
     def make_pattern(self):
         if_expression = ''
@@ -376,13 +376,14 @@ class Let:
         pattern = self.expression.pattern
         if '__otherwise__' in pattern and len(pattern) > 1:
             value = pattern.pop('__otherwise__')
-            else_expression = " else:\n  %s\n" % value
+            else_expression = "    else:\n        %s\n" % value
         if len(pattern) == 1:
-            if_expression = " if %s:\n  %s\n" % list(pattern.items())[0]
+            if_expression = "    if %s:\n        %s\n" % \
+                            list(pattern.items())[0]
         else:
             iter_pattern = iter(pattern.items())
-            if_expression = " if %s:\n  %s\n" % next(iter_pattern)
-            elif_expression = ''. join(' elif %s:\n  %s\n' % \
+            if_expression = "    if %s:\n        %s\n" % next(iter_pattern)
+            elif_expression = ''. join('    elif %s:\n        %s\n' % \
                                        (key, value) for key, value in \
                                        iter_pattern)
         self.expression.environ["expression"] = (

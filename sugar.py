@@ -16,6 +16,11 @@ def _make_closure_cell(val):
 
 def _change_op_code(i, op_code, constant_code, old_names, constants, new_code,
                     new_names, new_consts):
+    # NOTE: remember that list are mutable
+    assert type(new_code) is list
+    assert type(new_names) is list
+    assert type(new_consts) is list
+
     if op_code == opcode.opmap[constant_code]:
         oparg = new_code[i + 1] + (new_code[i + 2] << 8)
         # can't use the new_name variable directly because if I clean the
@@ -39,15 +44,16 @@ def _change_op_code(i, op_code, constant_code, old_names, constants, new_code,
             new_code[i + 2] = pos >> 8
 
 
-def _inject_constants(lambda_func, constants):
-    """Return a copy of of the `lambda_func` parameter. This copy have
+def _inject_constants(function, constants):
+    """Return a copy of of the `function` parameter. This copy have
     the constants defined in the `constants` map. If a key of
     `constants` share the same name than a global or local object,
     then replace such global or local by the value defined in the
     `constants` argument."""
     # NOTE: all vars with the *new_* name prefix are custom versions of
-    # the original attributes of the lambda_func.
-    old_code = lambda_func.__code__
+    # the original attributes of the function.
+    old_code = function.__code__
+    # store in list because I need to mutate them
     new_code = list(old_code.co_code)
     new_consts = list(old_code.co_consts)
     new_freevars = list(old_code.co_freevars)
@@ -74,29 +80,29 @@ def _inject_constants(lambda_func, constants):
     # NOTE: the lines comented whit the *CUSTOM:* tag mean that such argument
     # is a custom version of the original object
 
-    # create a new *code object* (like lambda_func.__code__)
+    # create a new *code object* (like function.__code__)
     code_object = types.CodeType(
         old_code.co_argcount,
         old_code.co_kwonlyargcount,
         old_code.co_nlocals,
         old_code.co_stacksize,
         old_code.co_flags,
-        bytes(new_code),            # CUSTOM: lambda_func.old_code.co_code
-        tuple(new_consts),          # CUSTOM: lambda_func.old_code.co_consts
-        tuple(new_names),           # CUSTOM: lambda_func.old_code.co_names
+        bytes(new_code),        # CUSTOM function.__code__.old_code.co_code
+        tuple(new_consts),      # CUSTOM function.__code__.old_code.co_consts
+        tuple(new_names),       # CUSTOM function.__code__.old_code.co_names
         old_code.co_varnames,
         old_code.co_filename,
         old_code.co_name,
         old_code.co_firstlineno,
         old_code.co_lnotab,
-        tuple(new_freevars),        # CUSTOM: lambda_func.old_code.co_freevars
+        tuple(new_freevars),    # CUSTOM function.__code__.old_code.co_freevars
         old_code.co_cellvars)
 
     # Customize the argument of the function object
     _code    = code_object
-    _globals = lambda_func.__globals__
-    _name    = lambda_func.__name__
-    _argdef  = None
+    _globals = function.__globals__
+    _name    = function.__name__
+    _argdef  = function.__defaults__
     _closure = tuple(_make_closure_cell(var) for var in new_freevars)
 
     # Make and return the new function

@@ -329,13 +329,13 @@ class TestLetClass(unittest.TestCase):
 @unittest.skip('unimplemented')
 class Test_error_Function(unittest.TestCase):
     def test_do_method_should_raise_an_exception(self):
-        pass
+        NotImplemented
 
 
 @unittest.skip('unimplemented')
 class Test_thyself_Function(unittest.TestCase):
     def test_recursive_function_with_the_thyself_function(self):
-        pass
+        NotImplemented
 
 
 if __name__ == '__main__':

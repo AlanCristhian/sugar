@@ -7,18 +7,36 @@ import opcode
 import types
 
 
-# cache all constants to improve the legibility
-OPMAP_LOAD_GLOBAL = opcode.opmap['LOAD_GLOBAL']
-OPMAP_LOAD_DEREF = opcode.opmap['LOAD_DEREF']
-OPMAP_LOAD_CONST = opcode.opmap['LOAD_CONST']
-OPCODE_HAVE_ARGUMENT = opcode.HAVE_ARGUMENT
-
-
 def _make_closure_cell(val):
     """a nested function just for creating a closure"""
     def nested():
         return val
     return nested.__closure__[0]
+
+
+def _change_op_code(i, op_code, constant_code, old_names, constants, new_code,
+                    new_names, new_consts):
+    if op_code == opcode.opmap[constant_code]:
+        oparg = new_code[i + 1] + (new_code[i + 2] << 8)
+        # can't use the new_name variable directly because if I clean the
+        # name i get an IndexError.
+        name = old_names[oparg]
+        if name in constants:
+            value = constants[name]
+            # pos is the position of the new const
+            for pos, v in enumerate(new_consts):
+                if v is value:
+                    # do nothing  if the value is already stored
+                    break
+            # add the value to new_consts if such value not exists
+            else:
+                pos = len(new_consts)
+                new_consts.append(value)
+                if constant_code == 'LOAD_DEREF':
+                    new_names.remove(name)
+            new_code[i] = opcode.opmap['LOAD_CONST']
+            new_code[i + 1] = pos & 0xFF
+            new_code[i + 2] = pos >> 8
 
 
 def _inject_constants(lambda_func, constants):
@@ -40,56 +58,17 @@ def _inject_constants(lambda_func, constants):
     while i < len(new_code):
         op_code = new_code[i]
         # Replace global lookups by the values defined in *constants*.
-        if op_code == OPMAP_LOAD_GLOBAL:
-            oparg = new_code[i + 1] + (new_code[i + 2] << 8)
-            # the names of all global variables are stored
-            # in lambda_func.old_code.co_names
-
-            # can't use the new_name variable directly because if I clean the
-            # name i get an IndexError.
-            name = old_code.co_names[oparg]
-            if name in constants:
-                value = constants[name]
-                # pos is the position of the new const
-                for pos, v in enumerate(new_consts):
-                    if v is value:
-                        # do nothing  if the value is already stored
-                        break
-                # add the value to new_consts if such value not exists
-                else:
-                    pos = len(new_consts)
-                    new_consts.append(value)
-                new_code[i] = OPMAP_LOAD_CONST
-                new_code[i + 1] = pos & 0xFF
-                new_code[i + 2] = pos >> 8
+        # The names of all global variables are stored in old_code.co_names
+        _change_op_code(i, op_code, 'LOAD_GLOBAL', old_code.co_names,
+                        constants, new_code, [], new_consts)
 
         # Replace local lookups by the values defined in *constants*.
-        if op_code == OPMAP_LOAD_DEREF:
-            oparg = new_code[i + 1] + (new_code[i + 2] << 8)
-            # the names of all local variables are stored
-            # in lambda_func.old_code.co_freevars
-
-            # can't use the new_name variable directly because if I clean the
-            # name i get an IndexError.
-            name = old_code.co_freevars[oparg]
-            if name in constants:
-                value = constants[name]
-                # pos is the position of the new const
-                for pos, v in enumerate(new_consts):
-                    if v is value:
-                        # do nothing  if the value is already stored
-                        break
-                # add the value to new_consts if such value not exists
-                else:
-                    pos = len(new_consts)
-                    new_consts.append(value)
-                    new_freevars.remove(name)
-                new_code[i] = OPMAP_LOAD_CONST
-                new_code[i + 1] = pos & 0xFF
-                new_code[i + 2] = pos >> 8
+        # The names of all local variables are stored in old_code.co_freevars
+        _change_op_code(i, op_code, 'LOAD_DEREF', old_code.co_freevars,
+                        constants, new_code, new_freevars, new_consts)
 
         i += 1
-        if op_code >= OPCODE_HAVE_ARGUMENT:
+        if op_code >= opcode.HAVE_ARGUMENT:
             i += 2
 
     # NOTE: the lines comented whit the *CUSTOM:* tag mean that such argument

@@ -374,17 +374,17 @@ class Let:
             self.make_do_body()
 
         # Decide if is recursive or not
-        if self.name in custom_function.__code__.co_names \
-        or self.name in custom_function.__code__.co_freevars:
-            if isinstance(self.expression, Do):
-                self.is_recursive = True
-            elif isinstance(self.expression, Match):
-                for value in self.expression.pattern.values():
-                    if (self.name + "(") in value:
-                        self.is_recursive = True
-                        break
-                    else:
-                        self.is_recursive = False
+        if self.name in custom_function.__code__.co_names or \
+           self.name in custom_function.__code__.co_freevars:
+                if isinstance(self.expression, Do):
+                    self.is_recursive = True
+                elif isinstance(self.expression, Match):
+                    for value in self.expression.pattern.values():
+                        if (self.name + "(") in value:
+                            self.is_recursive = True
+                            break
+                        else:
+                            self.is_recursive = False
         else:
             self.is_recursive = False
 

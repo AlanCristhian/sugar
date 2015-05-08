@@ -226,6 +226,7 @@ def _unary_operator(template):
         return result
     return operator
 
+
 # The __call__ method difer of the other special methods in the serparator
 # variable. So, I add such variable as default argument.
 def _built_in_function(template, separator=', '):
@@ -360,14 +361,6 @@ class Let:
                         "{constants}" \
                         "{pattern}" \
                         "{expression}"
-        # Decide if is recursive or not
-        if self.name in custom_function.__code__.co_names \
-        or self.name in custom_function.__code__.co_freevars:
-            self.is_recursive = True
-            custom_function = _inject_constants(custom_function,
-                               {self.name: Expression(self.name)})
-        else:
-            self.is_recursive = False
 
         # convert all globals and locals in Expression objects
         self.function = _replace_outher_scope_vars(custom_function)
@@ -379,6 +372,22 @@ class Let:
             self.make_pattern()
         if isinstance(self.expression, Do):
             self.make_do_body()
+
+        # Decide if is recursive or not
+        if self.name in custom_function.__code__.co_names \
+        or self.name in custom_function.__code__.co_freevars:
+            if isinstance(self.expression, Do):
+                self.is_recursive = True
+            elif isinstance(self.expression, Match):
+                for value in self.expression.pattern.values():
+                    if (self.name + "(") in value:
+                        self.is_recursive = True
+                        break
+                    else:
+                        self.is_recursive = False
+        else:
+            self.is_recursive = False
+
         self.make_signature()
         self.source = self.template.format(**self.expression.environ)
 

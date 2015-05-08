@@ -347,7 +347,6 @@ class TestLetClass(unittest.TestCase):
             ]))
         self.assertTrue(fib.is_recursive)
 
-    @unittest.skip('Not implemented')
     def test_that_the_function_is_not_recursive_if_their_name_is_a_key(self):
         fib = sugar.Let("fib", lambda n: sugar.Match([
             (fib(0), 0),

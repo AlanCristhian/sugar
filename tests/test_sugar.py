@@ -1,4 +1,3 @@
-import collections
 import unittest
 import types
 
@@ -156,6 +155,9 @@ class ExpressionTest(unittest.TestCase):
     def test__repr__method(self):
         self.assertEqual(repr(self.var), "self.var")
 
+    def test__call__method(self):
+        self.assertEqual(self.var(self.var), "self.var(self.var)")
+
 
 # This class is not runned if not inherit from unittest.TestCase
 # class FailedExpressionBehaviours(unittest.TestCase):
@@ -194,6 +196,12 @@ class FailedExpressionBehaviours:
 
 
 class TestLetClass(unittest.TestCase):
+    def test_function_name(self):
+        obtained = sugar.Let("obtained", lambda: sugar.Do(None))
+        expected = "def obtained():\n"\
+                   "    return None\n"
+        self.assertEqual(expected, obtained.source)
+
     # Do class
 
     def test_basic_source_code(self):
@@ -210,10 +218,8 @@ class TestLetClass(unittest.TestCase):
         self.assertEqual(expected, obtained.source)
 
     def test_exception_in_do_body(self):
-        obtained = sugar.Let(lambda:
-            sugar.Do(
-                sugar.Raise(ValueError('description' )))
-        )
+        obtained = sugar.Let(lambda: sugar.Do(
+            sugar.Raise(ValueError, 'description')))
         expected = "def function():\n"\
                    "    raise ValueError('description',)\n"
         self.assertEqual(expected, obtained.source)
@@ -221,23 +227,19 @@ class TestLetClass(unittest.TestCase):
     # Match class
 
     def test_single_pattern_matching(self):
-        obtained = sugar.Let(lambda x:
-            sugar.Match({
-                x > 0: True
-            })
-        )
+        obtained = sugar.Let(lambda x: sugar.Match([
+            (x > 0, True)
+            ]))
         expected = "def function(x):\n"\
                    "    if x>(0):\n"\
                    "        return True\n"
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_the_OTHERWISE_constant(self):
-        obtained = sugar.Let(lambda x:
-            sugar.Match({
-                x > 0: True,
-                sugar.OTHERWISE: False
-            })
-        )
+        obtained = sugar.Let(lambda x: sugar.Match([
+            (x > 0      , True),
+            ('otherwise', False)
+        ]))
         expected = ("def function(x):\n"
                     "    if x>(0):\n"
                     "        return True\n"
@@ -246,13 +248,11 @@ class TestLetClass(unittest.TestCase):
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_many_patterns(self):
-        obtained = sugar.Let(lambda x:
-            sugar.Match(collections.OrderedDict([
-                (x > 0, True),
-                (x < 0, False),
-                (sugar.OTHERWISE, 0)
-            ]))
-        )
+        obtained = sugar.Let(lambda x: sugar.Match([
+            (x > 0      , True),
+            (x < 0      , False),
+            ('otherwise', 0),
+        ]))
         expected = ("def function(x):\n"
                     "    if x>(0):\n"
                     "        return True\n"
@@ -263,13 +263,11 @@ class TestLetClass(unittest.TestCase):
         self.assertEqual(expected, obtained.source)
 
     def test_pattern_matching_with_where_method(self):
-        obtained = sugar.Let(lambda x:
-            sugar.Match(collections.OrderedDict([
-                (x > zero, True),
-                (x < zero, False),
-                (sugar.OTHERWISE, zero)
-            ])).where(zero=0)
-        )
+        obtained = sugar.Let(lambda x: sugar.Match([
+            (x > zero   , True),
+            (x < zero   , False),
+            ('otherwise', zero)
+            ]).where(zero=0))
         expected = ("def function(x):\n"
                     "    zero = 0\n"
                     "    if x>(zero):\n"
@@ -281,9 +279,9 @@ class TestLetClass(unittest.TestCase):
         self.assertEqual(expected, obtained.source)
 
     def test_exception_in_match_body(self):
-        obtained = sugar.Let(lambda x:
-            sugar.Match({x: sugar.Raise(ValueError('description' ))})
-        )
+        obtained = sugar.Let(lambda x: sugar.Match([
+            (x, sugar.Raise(ValueError, 'description'))
+            ]))
         expected = "def function(x):\n"\
                    "    if x:\n"\
                    "        raise ValueError('description',)\n"
@@ -312,9 +310,9 @@ class TestLetClass(unittest.TestCase):
         self.assertTrue("    return PI*(e)\n" in obtained.source)
 
     def test_where_method_with_global_variables(self):
-        obtained = sugar.Let(lambda:
-            sugar.Do(GLOBAL).where(GLOBAL='inner GLOBAL')
-        )
+        obtained = sugar.Let(lambda: sugar.Do(
+            GLOBAL
+            ).where(GLOBAL='inner GLOBAL'))
         expected = "def function():\n"\
                    "    GLOBAL = 'inner GLOBAL'\n"\
                    "    return GLOBAL\n"
@@ -322,8 +320,9 @@ class TestLetClass(unittest.TestCase):
 
     def test_where_method_with_local_variables(self):
         LOCAL = 'local variable'
-        obtained = sugar.Let(lambda:
-                             sugar.Do(LOCAL).where(LOCAL='inner LOCAL'))
+        obtained = sugar.Let(lambda: sugar.Do(
+            LOCAL
+            ).where(LOCAL='inner LOCAL'))
         expected = "def function():\n"\
                    "    LOCAL = 'inner LOCAL'\n"\
                    "    return LOCAL\n"
@@ -331,24 +330,41 @@ class TestLetClass(unittest.TestCase):
 
     def test_where_method_with_global_and_local_variables(self):
         LOCAL = 'local variable'
-        obtained = sugar.Let(lambda:
-            sugar.Do(
-                LOCAL*GLOBAL
-            ).where(
-                LOCAL=10,
-                GLOBAL=50
-            )
-        )
+        obtained = sugar.Let(lambda: sugar.Do(
+            LOCAL*GLOBAL
+            ).where(LOCAL=10, GLOBAL=50))
         self.assertTrue("    LOCAL = 10\n" in obtained.source)
         self.assertTrue("    GLOBAL = 50\n" in obtained.source)
         self.assertTrue("    return LOCAL*(GLOBAL)\n" in obtained.source)
 
+    def test_that_the_function_is_recursive(self):
+        fib = sugar.Let("fib", lambda n: sugar.Match([
+            (n == 0     , 0),
+            (n == 1     , 1),
+            (n >= 2     , fib(n-1) + fib(n-2)),
+            ('otherwise', sugar.Raise(ValueError,
+                                     "only accept possitive numbers"))
+            ]))
+        self.assertTrue(fib.is_recursive)
 
-@unittest.skip('unimplemented')
-class Test_thyself_Function(unittest.TestCase):
-    def test_recursive_function_with_the_thyself_function(self):
-        NotImplemented
+    @unittest.skip('Not implemented')
+    def test_that_the_function_is_not_recursive_if_their_name_is_a_key(self):
+        fib = sugar.Let("fib", lambda n: sugar.Match([
+            (fib(0), 0),
+            (fib(1), 1)
+            ]))
+        self.assertFalse(fib.is_recursive)
 
+    @unittest.skip('Not implemented')
+    def test_factorial(self):
+        factorial = sugar.Let("factorial", lambda n:
+            sugar.Match(
+                (n < 2, 1),
+                ['otherwise', n * factorial(n - 1)]
+            )
+        )
+        print()
+        print(factorial.source)
 
 if __name__ == '__main__':
     unittest.main()

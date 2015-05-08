@@ -1,121 +1,120 @@
 """Python 3 functional programing experiments."""
 
 
+import collections
 import itertools
 import inspect
 import opcode
 import types
 
 
-__all__ = ["Let", "Do", "OTHERWISE", "Expression", "Raise"]
+__all__ = ["Let", "Do", "Expression", "Raise"]
 
 
-def _make_closure_cell(val):
-    """a nested function just for creating a closure"""
+def _make_closure_cell(value):
+    """The types.FunctionType class ned a cell variable in the
+    closure argument. This function create such type with the value.
+    """
     def nested():
-        return val
+        return value
     return nested.__closure__[0]
 
 
-def _change_op_code(i, op_code, constant_code, old_names, constants, new_code,
-                    new_names, new_consts):
-    # NOTE: remember that list are mutable
-    assert type(new_code) is list
-    assert type(new_names) is list
-    assert type(new_consts) is list
+def _change_op_code(position, op_code, instruction, old_names, new_constants,
+                    custom_co_code, custom_co_names, custom_co_consts):
 
-    if op_code == opcode.opmap[constant_code]:
-        oparg = new_code[i + 1] + (new_code[i + 2] << 8)
-        # can't use the new_name variable directly because if I clean the
-        # name i get an IndexError.
-        name = old_names[oparg]
-        if name in constants:
-            value = constants[name]
-            # pos is the position of the new const
-            for pos, v in enumerate(new_consts):
-                if v is value:
-                    # do nothing  if the value is already stored
+    # NOTE: ensure that bellow variables are list because I need to mutate them
+    assert type(custom_co_code) is list
+    assert type(custom_co_names) is list
+    assert type(custom_co_consts) is list
+
+    if op_code == opcode.opmap[instruction]:
+        op_code_argument = custom_co_code[position + 1] + \
+                           (custom_co_code[position + 2] << 8)
+
+        # Can't use the new_name variable directly because if I clean the
+        # name position get an IndexError.
+        name = old_names[op_code_argument]
+        if name in new_constants:
+            new_value = new_constants[name]
+            for value_position, existent_value in enumerate(custom_co_consts):
+                if new_value is existent_value:
                     break
-            # add the value to new_consts if such value not exists
+
+            # Add the new_value to custom_co_consts if such value not exists.
             else:
-                pos = len(new_consts)
-                new_consts.append(value)
-                if constant_code == 'LOAD_DEREF':
-                    new_names.remove(name)
-            new_code[i] = opcode.opmap['LOAD_CONST']
-            new_code[i + 1] = pos & 0xFF
-            new_code[i + 2] = pos >> 8
+                value_position = len(custom_co_consts)
+                custom_co_consts.append(new_value)
+                if instruction == 'LOAD_DEREF':
+                    custom_co_names.remove(name)
+            custom_co_code[position] = opcode.opmap['LOAD_CONST']
+            custom_co_code[position + 1] = value_position & 0xFF
+            custom_co_code[position + 2] = value_position >> 8
 
 
-def _inject_constants(function, constants):
+def _inject_constants(function, new_constants):
     """Return a copy of of the `function` parameter. This copy have
-    the constants defined in the `constants` map. If a key of
-    `constants` share the same name than a global or local object,
+    the new_constants defined in the `new_constants` map. If a key of
+    `new_constants` share the same name than a global or local object,
     then replace such global or local by the value defined in the
-    `constants` argument."""
-    # NOTE: all vars with the *new_* name prefix are custom versions of
-    # the original attributes of the function.
-    old_code = function.__code__
-    # store in list because I need to mutate them
-    new_code = list(old_code.co_code)
-    new_consts = list(old_code.co_consts)
-    new_freevars = list(old_code.co_freevars)
-    new_names = list(old_code.co_names)
+    `new_constants` argument.
+    """
+    # Store in list because I need to mutate them.
+    custom_co_code     = list(function.__code__.co_code)
+    custom_co_consts   = list(function.__code__.co_consts)
+    custom_co_freevars = list(function.__code__.co_freevars)
+    custom_co_names    = list(function.__code__.co_names)
 
-    i = 0
-    # through the list of instructions
-    while i < len(new_code):
-        op_code = new_code[i]
-        # Replace global lookups by the values defined in *constants*.
-        # The names of all global variables are stored in old_code.co_names
-        _change_op_code(i, op_code, 'LOAD_GLOBAL', old_code.co_names,
-                        constants, new_code, [], new_consts)
+    # Walk the list of instructions and change 'custom_co_code',
+    # 'custom_co_consts', 'custom_co_freevars' and 'custom_co_names'.
+    enumerate_custom_co_code = enumerate(custom_co_code)
+    for position, op_code in enumerate_custom_co_code:
 
-        # Replace local lookups by the values defined in *constants*.
-        # The names of all local variables are stored in old_code.co_freevars
-        _change_op_code(i, op_code, 'LOAD_DEREF', old_code.co_freevars,
-                        constants, new_code, new_freevars, new_consts)
+        # Replace global lookups by the values defined in *new_constants*.
+        # function.__code__.co_names store names of all global variables.
+        _change_op_code(position, op_code, 'LOAD_GLOBAL',
+                        function.__code__.co_names, new_constants,
+                        # bellow variables are mutated by the function
+                        custom_co_code, [], custom_co_consts)
 
-        i += 1
+        # Replace local lookups by the values defined in *new_constants*.
+        # function.__code__.co_freevars store names of all local variables
+        _change_op_code(position, op_code, 'LOAD_DEREF',
+                        function.__code__.co_freevars, new_constants,
+                        # bellow variables are mutated by the function
+                        custom_co_code, custom_co_freevars, custom_co_consts)
+
         if op_code >= opcode.HAVE_ARGUMENT:
-            i += 2
+            next(enumerate_custom_co_code)
+            next(enumerate_custom_co_code)
 
-    # NOTE: the lines comented whit the *CUSTOM:* tag mean that such argument
-    # is a custom version of the original object
-
-    # create a new *code object* (like function.__code__)
-    code_object = types.CodeType(
-        old_code.co_argcount,
-        old_code.co_kwonlyargcount,
-        old_code.co_nlocals,
-        old_code.co_stacksize,
-        old_code.co_flags,
-        bytes(new_code),        # CUSTOM function.__code__.old_code.co_code
-        tuple(new_consts),      # CUSTOM function.__code__.old_code.co_consts
-        tuple(new_names),       # CUSTOM function.__code__.old_code.co_names
-        old_code.co_varnames,
-        old_code.co_filename,
-        old_code.co_name,
-        old_code.co_firstlineno,
-        old_code.co_lnotab,
-        tuple(new_freevars),    # CUSTOM function.__code__.old_code.co_freevars
-        old_code.co_cellvars)
+    # create a new 'code object' (like function.__code__)
+    custom_code = types.CodeType(function.__code__.co_argcount,
+                                 function.__code__.co_kwonlyargcount,
+                                 function.__code__.co_nlocals,
+                                 function.__code__.co_stacksize,
+                                 function.__code__.co_flags,
+                                 bytes(custom_co_code),
+                                 tuple(custom_co_consts),
+                                 tuple(custom_co_names),
+                                 function.__code__.co_varnames,
+                                 function.__code__.co_filename,
+                                 function.__code__.co_name,
+                                 function.__code__.co_firstlineno,
+                                 function.__code__.co_lnotab,
+                                 tuple(custom_co_freevars),
+                                 function.__code__.co_cellvars)
 
     # Customize the argument of the function object
-    _code    = code_object
+    _code    = custom_code
     _globals = function.__globals__
     _name    = function.__name__
     _argdef  = function.__defaults__
-    _closure = tuple(_make_closure_cell(var) for var in new_freevars)
+    _closure = tuple(_make_closure_cell(variable) for variable in \
+                     custom_co_freevars)
 
     # Make and return the new function
     return types.FunctionType(_code, _globals, _name, _argdef, _closure)
-
-
-def _pairwise(iterable):
-    "s -> (s0,s1), (s2,s3), (s4, s5), ..."
-    a = iter(iterable)
-    return zip(a, a)
 
 
 _LEFT_OPERATOR = [
@@ -190,10 +189,11 @@ _BUILT_IN_FUNCTIONS = [
 
 
 def _left_operator(template):
-    """Return a function that make an expression string with a binary
-    left operator."""
+    """Return a function that make an expression
+    string with a binary left operator.
+    """
     def operator(self, other):
-        result = Expression('')
+        result = Expression("")
         if hasattr(other, '__expr__'):
             result.__expr__ = template % (self.__expr__, other.__expr__)
         else:
@@ -203,10 +203,11 @@ def _left_operator(template):
 
 
 def _right_operator(template):
-    """Return a function that make an expression string with an
-    binary operator placed at the right of the variable."""
+    """Return a function that make an expression string with
+    an binary operator placed at the right of the variable.
+    """
     def operator(self, other):
-        result = Expression('')
+        result = Expression("")
         if hasattr(other, '__expr__'):
             result.__expr__ = template % (other.__expr__, self.__expr__)
         else:
@@ -216,27 +217,29 @@ def _right_operator(template):
 
 
 def _unary_operator(template):
-    """Return a function that make an expression string with an
-    unary operator."""
+    """Return a function that make an
+    expression string with an unary operator.
+    """
     def operator(self):
-        result = Expression('')
+        result = Expression("")
         result.__expr__ = template % self.__expr__
         return result
     return operator
 
-
-def _built_in_function(template):
-    """Return a function that make an expression with an
-    built in function."""
+# The __call__ method difer of the other special methods in the serparator
+# variable. So, I add such variable as default argument.
+def _built_in_function(template, separator=', '):
+    """Return a function that make an
+    expression with an built in function.
+    """
     def function(self, *args, **kwds):
-        formated_kwds, formated_args = '', ''
+        formated_kwds, formated_args = "", ""
         if args != ():
-            formated_args = ', ' + repr(args)[1:][:-2]
+            formated_args = separator + repr(args)[1:][:-2]
         if kwds != {}:
-            add_equal = ('%s=%s' %  (key, repr(value)) for \
-                         key, value in kwds.items())
+            add_equal = ('%s=%r' % (key, value) for key, value in kwds.items())
             formated_kwds = ', ' + ', '.join(add_equal)
-        result = Expression('')
+        result = Expression("")
         result.__expr__ = template % (self.__expr__, formated_args,
                                       formated_kwds)
         return result
@@ -244,8 +247,9 @@ def _built_in_function(template):
 
 
 class _DefineAllOperatorsMeta(type):
-    """All operators of the new class will return an instance of the
-    Expression class."""
+    """All operators of the new class will
+    return an instance of the Expression class.
+    """
     def __new__(cls, name, bases, namespace):
         namespace.update({function: _left_operator(template) for \
                           function, template in _LEFT_OPERATOR})
@@ -255,13 +259,16 @@ class _DefineAllOperatorsMeta(type):
                           function, template in _UNARY_OPERATOR})
         namespace.update({function: _built_in_function(template) for \
                           function, template in _BUILT_IN_FUNCTIONS})
+        call_method = _built_in_function(template='%s(%s%s)', separator="")
+        namespace.update({'__call__': call_method})
         new_class = super().__new__(cls, name, bases, namespace)
         return new_class
 
 
 class Expression(metaclass=_DefineAllOperatorsMeta):
-    """Create an object that store all mathematical operations
-    in which it is involved."""
+    """Create an object that store all
+    math operations in which it is involved.
+    """
     def __init__(self, name, bases=()):
         self.__expr__ = name
 
@@ -269,20 +276,17 @@ class Expression(metaclass=_DefineAllOperatorsMeta):
         return self.__expr__
 
     def __getattr__(self, attr):
-        result = Expression('')
+        result = Expression("")
         result.__expr__ = '(%s).%s' % (self.__expr__, attr)
         return result
 
     def __getitem__(self, attr):
-        result = Expression('')
-        result.__expr__ = '(%s)[%s]' % (self.__expr__, repr(attr))
+        result = Expression("")
+        result.__expr__ = '(%s)[%r]' % (self.__expr__, attr)
         return result
 
     def __hash__(self):
         return hash(self.__expr__)
-
-
-OTHERWISE = '__otherwise__'
 
 
 class _Body:
@@ -292,7 +296,7 @@ class _Body:
 
     def where(self, **constants):
         """Inject constatns in the function."""
-        formated = '\n'.join("    %s = %s" % (key, repr(value)) for \
+        formated = '\n'.join("    %s = %r" % (key, value) for \
                              key, value in constants.items()) + '\n'
         self.environ["constants"] = formated
         return self
@@ -305,41 +309,72 @@ class Do(_Body):
 
 
 class Match(_Body):
-    def __init__(self, pattern):
+    def __init__(self, patterns):
+        pattern = collections.OrderedDict(patterns)
         super().__init__(pattern)
         self.pattern = pattern
 
 
 class Raise:
-    def __init__(self, error):
-        self.error = error
+    def __init__(self, error, message=None):
+        self.error = error if message is None else error(message)
 
 
-def _replace_globals_and_locals(function):
-    "Replace defined locals and globals by an Expression object."
+def _replace_outher_scope_vars(function):
+    """Replace defined locals and globals by an Expression object."""
     globals_and_locals = itertools.chain(function.__code__.co_names,
                                          function.__code__.co_freevars)
+    constants = {}
     for var in globals_and_locals:
         if var in function.__code__.co_consts:
             # The first const everything is None. So I remove them
-            consts = function.__code__.co_consts[1:]
+            constant_list = function.__code__.co_consts[1:]
             # Now I make a dictionary
-            consts = {name: Expression(name) for name, _ in \
-                      _pairwise(consts)}
-            return _inject_constants(function, consts)
+            constant_dict = {name: Expression(name) for name in \
+                             constant_list if name == var}
+            constants.update(constant_dict)
+    # Closures also will be an Expression object
+    constants.update({name: Expression(name) for name in \
+                     function.__code__.co_freevars})
+    function = _inject_constants(function, constants)
     return function
 
 
 class Let:
-    def __init__(self, lambda_func):
-        assert type(lambda_func) is types.LambdaType
-        self.template = "def function{arguments}:\n" \
+    def __init__(self, *args):
+        # define name and custom_function
+        if len(args) == 2:
+            self.name = args[0]
+            custom_function = args[1]
+        elif len(args) == 1:
+            self.name = "function"
+            custom_function = args[0]
+        else:
+            raise TypeError("__init__() takes 3 positional arguments but"
+                            " {} were given".format(len(args)))
+        assert type(custom_function) is types.LambdaType
+
+        # define the template
+        self.template = "def {name}{arguments}:\n" \
                         "{docstring}" \
                         "{constants}" \
                         "{pattern}" \
                         "{expression}"
-        self.lambda_func = _replace_globals_and_locals(lambda_func)
-        self.make_expression()
+        # Decide if is recursive or not
+        if self.name in custom_function.__code__.co_names \
+        or self.name in custom_function.__code__.co_freevars:
+            self.is_recursive = True
+            custom_function = _inject_constants(custom_function,
+                               {self.name: Expression(self.name)})
+        else:
+            self.is_recursive = False
+
+        # convert all globals and locals in Expression objects
+        self.function = _replace_outher_scope_vars(custom_function)
+        # create the expression property
+        self.expression = self.make_expression()
+        # fill the name of the funciton
+        self.expression.environ["name"] = self.name
         if isinstance(self.expression, Match):
             self.make_pattern()
         if isinstance(self.expression, Do):
@@ -348,9 +383,9 @@ class Let:
         self.source = self.template.format(**self.expression.environ)
 
     def make_expression(self):
-        parameters = self.lambda_func.__code__.co_varnames
-        arguments = tuple(Expression(arg) for arg in parameters)
-        self.expression = self.lambda_func(*arguments)
+        parameters = self.function.__code__.co_varnames
+        arguments = (Expression(arg) for arg in parameters)
+        return self.function(*arguments)
 
     def make_do_body(self):
         if isinstance(self.expression, Expression):
@@ -358,38 +393,44 @@ class Let:
                                               expression.__expr__
         elif isinstance(self.expression.body, Raise):
             self.expression.environ["expression"] = \
-                "    raise %s\n" % repr(self.expression.body.error)
+                "    raise %r\n" % self.expression.body.error
         else:
             self.expression.environ["expression"] = \
-                "    return %s\n" % repr(self.expression.body)
+                "    return %r\n" % self.expression.body
 
     def make_pattern(self):
-        if_expression = ''
-        elif_expression = ''
-        else_expression = ''
+        if_expression = elif_expression = else_expression = ""
         for key, value in self.expression.pattern.items():
             if isinstance(value, Raise):
-                new_value = repr(self.expression.pattern[key].error)
-                self.expression.pattern[key] = "raise " + new_value
+                self.expression.pattern[key] = "raise %r" % value.error
             else:
-                self.expression.pattern[key] = "return " + repr(value)
+                self.expression.pattern[key] = "return %r" % value
         pattern = self.expression.pattern
-        if '__otherwise__' in pattern and len(pattern) > 1:
-            value = pattern.pop('__otherwise__')
+        if 'otherwise' in pattern and len(pattern) > 1:
+            value = pattern.pop('otherwise')
             else_expression = "    else:\n        %s\n" % value
         if len(pattern) == 1:
             if_expression = "    if %s:\n        %s\n" % \
-                            list(pattern.items())[0]
+                            next(iter(pattern.items()))
         else:
             iter_pattern = iter(pattern.items())
             if_expression = "    if %s:\n        %s\n" % next(iter_pattern)
-            elif_expression = ''. join('    elif %s:\n        %s\n' % \
-                                       (key, value) for key, value in \
-                                       iter_pattern)
-        self.expression.environ["expression"] = (
-            if_expression + elif_expression + else_expression)
-
+            elif_expression = "".join('    elif %s:\n        %s\n' % \
+                                      (key, value) for key, value in \
+                                      iter_pattern)
+        self.expression.environ["expression"] = (if_expression +
+                                                 elif_expression +
+                                                 else_expression)
 
     def make_signature(self):
-        args = inspect.formatargspec(*inspect.getargspec(self.lambda_func))
-        self.expression.environ["arguments"] = args
+        arguments = inspect.getargspec(self.function)
+        formated_arguments = inspect.formatargspec(*arguments)
+        self.expression.environ["arguments"] = formated_arguments
+
+
+def all(*items):
+    return "__builtins__.all(%s)" % list(items)
+
+
+def all(*items):
+    return "__builtins__.all(%s)" % list(items)

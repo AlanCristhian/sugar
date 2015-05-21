@@ -1,7 +1,6 @@
 """Python 3 functional programing experiments."""
 
 
-import collections
 import itertools
 import inspect
 import opcode
@@ -110,7 +109,7 @@ def _inject_constants(function, new_constants):
     _globals = function.__globals__
     _name    = function.__name__
     _argdef  = function.__defaults__
-    _closure = tuple(_make_closure_cell(variable) for variable in \
+    _closure = tuple(_make_closure_cell(variable) for variable in
                      custom_co_freevars)
 
     # Make and return the new function
@@ -252,13 +251,13 @@ class _DefineAllOperatorsMeta(type):
     return an instance of the Expression class.
     """
     def __new__(cls, name, bases, namespace):
-        namespace.update({function: _left_operator(template) for \
+        namespace.update({function: _left_operator(template) for
                           function, template in _LEFT_OPERATOR})
-        namespace.update({function: _right_operator(template) for \
+        namespace.update({function: _right_operator(template) for
                           function, template in _RIGHT_OPERATOR})
-        namespace.update({function: _unary_operator(template) for \
+        namespace.update({function: _unary_operator(template) for
                           function, template in _UNARY_OPERATOR})
-        namespace.update({function: _built_in_function(template) for \
+        namespace.update({function: _built_in_function(template) for
                           function, template in _BUILT_IN_FUNCTIONS})
         call_method = _built_in_function(template='%s(%s%s)', separator="")
         namespace.update({'__call__': call_method})
@@ -297,7 +296,7 @@ class _Body:
 
     def where(self, **constants):
         """Inject constatns in the function."""
-        formated = '\n'.join("    %s = %r" % (key, value) for \
+        formated = '\n'.join("    %s = %r" % (key, value) for
                              key, value in constants.items()) + '\n'
         self.environ["constants"] = formated
         return self
@@ -310,8 +309,7 @@ class Do(_Body):
 
 
 class Match(_Body):
-    def __init__(self, patterns):
-        pattern = collections.OrderedDict(patterns)
+    def __init__(self, pattern):
         super().__init__(pattern)
         self.pattern = pattern
 
@@ -331,11 +329,11 @@ def _replace_outher_scope_vars(function):
             # The first const everything is None. So I remove them
             constant_list = function.__code__.co_consts[1:]
             # Now I make a dictionary
-            constant_dict = {name: Expression(name) for name in \
+            constant_dict = {name: Expression(name) for name in
                              constant_list if name == var}
             constants.update(constant_dict)
     # Closures also will be an Expression object
-    constants.update({name: Expression(name) for name in \
+    constants.update({name: Expression(name) for name in
                      function.__code__.co_freevars})
     function = _inject_constants(function, constants)
     return function
@@ -356,11 +354,11 @@ class Let:
         assert type(custom_function) is types.LambdaType
 
         # define the template
-        self.template = "def {name}{arguments}:\n" \
-                        "{docstring}" \
-                        "{constants}" \
-                        "{pattern}" \
-                        "{expression}"
+        self.template = ("def {name}{arguments}:\n"
+                         "{docstring}"
+                         "{constants}"
+                         "{pattern}"
+                         "{expression}")
 
         # convert all globals and locals in Expression objects
         self.function = _replace_outher_scope_vars(custom_function)
@@ -399,13 +397,13 @@ class Let:
     def make_do_body(self):
         if isinstance(self.expression, Expression):
             self.expression.environ["expression"] = "    return %s\n" % \
-                                              expression.__expr__
+                                                    expression.__expr__
         elif isinstance(self.expression.body, Raise):
-            self.expression.environ["expression"] = \
-                "    raise %r\n" % self.expression.body.error
+            self.expression.environ["expression"] = "    raise %r\n" % \
+                                                    self.expression.body.error
         else:
-            self.expression.environ["expression"] = \
-                "    return %r\n" % self.expression.body
+            self.expression.environ["expression"] = "    return %r\n" % \
+                                                    self.expression.body
 
     def make_pattern(self):
         if_expression = elif_expression = else_expression = ""
@@ -424,8 +422,8 @@ class Let:
         else:
             iter_pattern = iter(pattern.items())
             if_expression = "    if %s:\n        %s\n" % next(iter_pattern)
-            elif_expression = "".join('    elif %s:\n        %s\n' % \
-                                      (key, value) for key, value in \
+            elif_expression = "".join('    elif %s:\n        %s\n' %
+                                      (key, value) for key, value in
                                       iter_pattern)
         self.expression.environ["expression"] = (if_expression +
                                                  elif_expression +
@@ -437,9 +435,9 @@ class Let:
         self.expression.environ["arguments"] = formated_arguments
 
 
-def all(*items):
-    return "__builtins__.all(%s)" % list(items)
+def all(items):
+    return "__builtins__.all(%s)" % items
 
 
-def all(*items):
-    return "__builtins__.all(%s)" % list(items)
+def any(items):
+    return "__builtins__.any(%s)" % items

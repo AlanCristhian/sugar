@@ -1,13 +1,14 @@
 """Python 3 functional programing experiments."""
 
 
+import collections
 import itertools
 import inspect
 import opcode
 import types
 
 
-__all__ = ["Let", "Do", "Expression", "Raise"]
+__all__ = ["Let", "Expression", "Raise", "Where"]
 
 
 def _make_closure_cell(value):
@@ -296,9 +297,10 @@ class _Body:
 
     def where(self, **constants):
         """Inject constatns in the function."""
-        formated = '\n'.join("    %s = %r" % (key, value) for
-                             key, value in constants.items()) + '\n'
-        self.environ["constants"] = formated
+        if constants:
+            formated = '\n'.join("    %s = %r" % (key, value) for
+                                 key, value in constants.items()) + '\n'
+            self.environ["constants"] = formated
         return self
 
 
@@ -308,18 +310,17 @@ class Do(_Body):
         self.body = body
 
 
-class Match(_Body):
+class Ward(_Body):
     def __init__(self, pattern):
         super().__init__(pattern)
         self.pattern = pattern
-
 
 class Raise:
     def __init__(self, error, message=None):
         self.error = error if message is None else error(message)
 
 
-def _replace_outher_scope_vars(function):
+def _convert_variables_to_exressions(function):
     """Replace defined locals and globals by an Expression object."""
     globals_and_locals = itertools.chain(function.__code__.co_names,
                                          function.__code__.co_freevars)
@@ -335,84 +336,90 @@ def _replace_outher_scope_vars(function):
     # Closures also will be an Expression object
     constants.update({name: Expression(name) for name in
                      function.__code__.co_freevars})
-    function = _inject_constants(function, constants)
-    return function
+    new_function = _inject_constants(function, constants)
+    return new_function
+
+
+class Where(dict):
+    def __rand__(self, other):
+        return self, other
 
 
 class Let:
-    def __init__(self, *args):
-        # define name and custom_function
-        if len(args) == 2:
-            self.name = args[0]
-            custom_function = args[1]
-        elif len(args) == 1:
-            self.name = "function"
-            custom_function = args[0]
-        else:
-            raise TypeError("__init__() takes 3 positional arguments but"
-                            " {} were given".format(len(args)))
-        assert type(custom_function) is types.LambdaType
-
-        # define the template
-        self.template = ("def {name}{arguments}:\n"
+    def __init__(self, name, lambda_function):
+        self.name = name
+        lambda_with_built_in = _inject_constants(lambda_function,
+                                                {"where": Where,
+                                                "throw": Raise})
+        self.function = _convert_variables_to_exressions(lambda_with_built_in)
+        self.template = ("def {function_name}{arguments}:\n"
                          "{docstring}"
                          "{constants}"
                          "{pattern}"
                          "{expression}")
 
-        # convert all globals and locals in Expression objects
-        self.function = _replace_outher_scope_vars(custom_function)
-        # create the expression property
         self.expression = self.make_expression()
-        # fill the name of the funciton
-        self.expression.environ["name"] = self.name
-        if isinstance(self.expression, Match):
-            self.make_pattern()
-        if isinstance(self.expression, Do):
-            self.make_do_body()
+        self.expression.environ["function_name"] = self.name
+        self.expression.environ["arguments"] = self.make_signature()
 
         # Decide if is recursive or not
-        if self.name in custom_function.__code__.co_names or \
-           self.name in custom_function.__code__.co_freevars:
+        self.is_recursive = False
+        if self.name in lambda_function.__code__.co_names or \
+           self.name in lambda_function.__code__.co_freevars:
                 if isinstance(self.expression, Do):
                     self.is_recursive = True
-                elif isinstance(self.expression, Match):
+                elif isinstance(self.expression, Ward):
                     for value in self.expression.pattern.values():
-                        if (self.name + "(") in value:
-                            self.is_recursive = True
-                            break
-                        else:
-                            self.is_recursive = False
-        else:
-            self.is_recursive = False
+                        if isinstance(value, Expression) and \
+                           (self.name + "(") in value:
+                                self.is_recursive = True
+                                break
 
-        self.make_signature()
+        # make the body of the function
+        if self.is_recursive:
+            pass
+        else:
+            if isinstance(self.expression, Ward):
+                self.expression.environ["expression"] = self.make_ward_body()
+            elif isinstance(self.expression, Do):
+                self.expression.environ["expression"] = self.make_do_body()
+
         self.source = self.template.format(**self.expression.environ)
 
     def make_expression(self):
         parameters = self.function.__code__.co_varnames
         arguments = (Expression(arg) for arg in parameters)
-        return self.function(*arguments)
+        expression = self.function(*arguments)
+
+        if isinstance(expression, tuple):
+            constants, expression = expression
+        else:
+            constants = {}
+
+        if isinstance(expression, list):
+            expression = collections.OrderedDict(expression)
+
+        if isinstance(expression, set):
+            return Do(expression.pop()).where(**constants)
+        elif isinstance(expression, dict):
+            return Ward(expression).where(**constants)
 
     def make_do_body(self):
         if isinstance(self.expression, Expression):
-            self.expression.environ["expression"] = "    return %s\n" % \
-                                                    expression.__expr__
+            return "    return %s\n" % expression.__expr__
         elif isinstance(self.expression.body, Raise):
-            self.expression.environ["expression"] = "    raise %r\n" % \
-                                                    self.expression.body.error
+            return "    raise %r\n" % self.expression.body.error
         else:
-            self.expression.environ["expression"] = "    return %r\n" % \
-                                                    self.expression.body
+            return "    return %r\n" % self.expression.body
 
-    def make_pattern(self):
+    def make_ward_body(self):
         if_expression = elif_expression = else_expression = ""
-        for key, value in self.expression.pattern.items():
+        pattern = self.expression.pattern.copy()
+        for key, value in pattern.items():
             if isinstance(value, Raise):
-                self.expression.pattern[key] = "raise %r" % value.error
+                pattern[key] = "raise %r" % value.error
             else:
-                self.expression.pattern[key] = "return %r" % value
-        pattern = self.expression.pattern
+                pattern[key] = "return %r" % value
         if 'otherwise' in pattern and len(pattern) > 1:
             value = pattern.pop('otherwise')
             else_expression = "    else:\n        %s\n" % value
@@ -425,14 +432,12 @@ class Let:
             elif_expression = "".join('    elif %s:\n        %s\n' %
                                       (key, value) for key, value in
                                       iter_pattern)
-        self.expression.environ["expression"] = (if_expression +
-                                                 elif_expression +
-                                                 else_expression)
+        return if_expression + elif_expression + else_expression
 
     def make_signature(self):
         arguments = inspect.getargspec(self.function)
         formated_arguments = inspect.formatargspec(*arguments)
-        self.expression.environ["arguments"] = formated_arguments
+        return formated_arguments
 
 
 def all(items):

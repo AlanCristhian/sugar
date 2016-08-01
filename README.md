@@ -28,6 +28,7 @@ I drop this project because:
   Linters warns for PEP 8 errors.
 - No elegant way to decorate a lambda funcion.
 - No ovious way to add docstring.
+- No clear way to handle exceptions.
 - Functional programming is not a good idea in general.
 
 ## examples

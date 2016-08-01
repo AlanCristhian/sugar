@@ -41,7 +41,7 @@ with vanilla python.
 ```python
 from sugar import Let
 
-basic = Let("basic", lambda: {None})
+basic = Let(lambda: {None})
 
 def basic():
     pass
@@ -52,7 +52,7 @@ def basic():
 ```python
 from sugar import Let
 
-add = Let("add", lambda x, y: {x + y})
+add = Let(lambda x, y: {x + y})
 
 # ------------------------------------
 
@@ -65,7 +65,7 @@ def add(x, y):
 ```python
 from sugar import Let, Raise
 
-exception = Let("exception", lambda: {
+exception = Let(lambda: {
     Raise(ValueError, 'description')
 })
 
@@ -80,7 +80,7 @@ def exception():
 ```python
 from sugar import Let, Raise, OTHERWISE
 
-is_positive = sugar.Let("is_positive", lambda x: {
+is_positive = sugar.Let(lambda x: {
     x > 0    : True,
     x < 0    : False,
     OTHERWISE: Raise(ValueError, "Zero is unsigned."),
@@ -102,7 +102,7 @@ def is_positive(x):
 ```python
 from sugar import Let, Raise, Where
 
-electric_force = Let("electric_force", lambda charge, radious: {
+electric_force = Let(lambda charge, radious: {
     (charge*elemental_charge)/(4*pi*vacuum_permittivity*radious**2)
 }&where(
     pi = 3.142,
@@ -127,17 +127,17 @@ from sugar import Let, functools
 
 # Takes two functions as arguments (first and second)
 # and returns a function representing their composition.
-_compose_two = Let("_compose_two", lambda first, second: {
+_compose_two = Let(lambda first, second: {
     _call_nested
 }&where(
-    _call_nested = Let("_call_nested", lambda argument: {
+    _call_nested = Let(lambda argument: {
         first(second(argument))
     })
 ))
 
 # Take an indefinite number of functions and
 # returns a function that compose all them.
-compose = Let("compose", lambda *functions: {
+compose = Let(lambda *functions: {
     functools.reduce(_compose_two, functions)
 })
 
